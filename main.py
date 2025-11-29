@@ -6,6 +6,7 @@ from google.oauth2 import service_account
 import logging
 
 from read_coデータ import read_coデータ
+from update_co心理指標 import update_co個人価値観
 
 
 # Cloud Logging に出力するよう設定
@@ -19,6 +20,8 @@ def main():
 
     # スプレッドシート読込
     worksheet, existing_df, processed_urls = read_coデータ()
+
+    update_co個人価値観(worksheet)
     
     return 'Cloud Run Function executed.', 200
 
