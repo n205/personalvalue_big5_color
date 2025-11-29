@@ -71,7 +71,7 @@ def extract_main_colors_from_pdf(pdf_bytes, num_colors=2):
 # ============================================
 # update_色番号（メイン処理）
 # ============================================
-def update_色番号(worksheet):
+def update_co色番号(worksheet):
     logging.info("🖼️ update_色番号 開始")
 
     df = get_as_dataframe(worksheet)
