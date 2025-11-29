@@ -39,26 +39,26 @@ def extract_pvq_scores(value_text):
         gemini_model = init_gemini()
 
     prompt = f"""
-あなたは心理学の専門家です。
-以下の文章は、ある企業の「バリュー」または「行動指針」を要約したものです。
-
-Schwartzの10価値観（PVQ）理論に基づいて、この文章が各価値観をどの程度重視しているかを、1〜7で推定してください。
-
-出力形式（順番厳守）：
-自己方向性: 数値
-刺激: 数値
-享楽: 数値
-達成: 数値
-権力: 数値
-安全: 数値
-順応: 数値
-伝統: 数値
-博愛: 数値
-普遍主義: 数値
-
----
-{value_text}
-"""
+        あなたは心理学の専門家です。
+        以下の文章は、ある企業の「バリュー」または「行動指針」を要約したものです。
+        
+        Schwartzの10価値観（PVQ）理論に基づいて、この文章が各価値観をどの程度重視しているかを、1〜7で推定してください。
+        
+        出力形式（順番厳守）：
+        自己方向性: 数値
+        刺激: 数値
+        享楽: 数値
+        達成: 数値
+        権力: 数値
+        安全: 数値
+        順応: 数値
+        伝統: 数値
+        博愛: 数値
+        普遍主義: 数値
+        
+        ---
+        {value_text}
+        """
 
     try:
         res = gemini_model.generate_content(prompt)
@@ -106,33 +106,37 @@ def update_co個人価値観(worksheet):
         company = row.get("会社名", "")
         value_text = row.get("バリュー", "")
 
-        # すでに埋まっている行はスキップ
+        # すでに埋まっている行はスキップ（ログは出さない）
         if all(str(row.get(col, "")).strip() not in ["", "対象外"] for col in pvq_columns):
             continue
 
-        # 対象外 or バリュー取得失敗
+        # 「対象外」処理（ログを出さない）
         if company == "対象外" or value_text in ["対象外", "取得失敗", ""]:
             for col in pvq_columns:
                 df.at[idx, col] = "対象外"
             update_count += 1
-            logging.info(f"⏭️ 対象外: {company} ({idx})")
             continue
 
-        # PVQ 推定
+        # ---------- PVQ 推定 ----------
         scores = extract_pvq_scores(value_text)
 
-        if scores:
+        if scores and any(scores.values()):
+            # 正常にスコアが返った場合
             for col in pvq_columns:
                 df.at[idx, col] = scores.get(col, "")
             update_count += 1
             logging.info(f"📝 PVQ推定: {company}")
         else:
-            logging.warning(f"⚠️ 推定失敗: {company}")
+            # Gemini の推定が失敗した場合 → すべて「対象外」
+            for col in pvq_columns:
+                df.at[idx, col] = "対象外"
+            update_count += 1
+            logging.warning(f"⚠️ 推定失敗 → 対象外に設定: {company}")
 
     df.replace([np.nan, np.inf, -np.inf], "", inplace=True)
 
     # ============================================
-    # 列全体一括更新（あなたの他の関数と統一）
+    # 列全体一括更新
     # ============================================
     def col_to_letter(index):
         letters = ""
