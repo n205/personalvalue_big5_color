@@ -5,7 +5,7 @@ from gspread_dataframe import get_as_dataframe
 from google.oauth2 import service_account
 import logging
 
-from read_sheet import read_sheet
+from read_coデータ import read_coデータ
 
 
 # Cloud Logging に出力するよう設定
