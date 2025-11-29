@@ -21,7 +21,7 @@ def main():
     # スプレッドシート読込
     worksheet, existing_df, processed_urls = read_coデータ()
 
-    update_co個人価値観(worksheet)
+    update_co個人価値観(worksheet,existing_df)
     
     return 'Cloud Run Function executed.', 200
 
