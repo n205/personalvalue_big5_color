@@ -1,4 +1,4 @@
-# update_co心理指標.py
+# update_co個人価値観.py
 
 import os
 import warnings
@@ -6,34 +6,31 @@ import pandas as pd
 import numpy as np
 from openpyxl.utils import get_column_letter
 from google.cloud import secretmanager
-
 import google.generativeai as genai
 
-from read_coデータ import read_coデータ
 
-
-# -----------------------------------------
-# Secret Manager → Gemini APIキー取得
-# -----------------------------------------
+# -------------------------------
+# Secret Manager → Gemini APIキー
+# -------------------------------
 def load_gemini_key():
     client = secretmanager.SecretManagerServiceClient()
-    name = os.environ["GEMINI_API_KEY_SECRET"]
-    response = client.access_secret_version(request={"name": name})
+    secret_name = os.environ["GEMINI_API_KEY_SECRET"]
+    response = client.access_secret_version(request={"name": secret_name})
     return response.payload.data.decode("utf-8")
 
 
-# -----------------------------------------
-# Geminiモデルの初期化（都度生成：メモリリーク対策）
-# -----------------------------------------
+# -------------------------------
+# Geminiモデル生成（リーク防止）
+# -------------------------------
 def get_gemini_model():
     api_key = load_gemini_key()
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-2.5-flash")
+    return genai.GenerativeModel("gemini-2.5-flash")   # ←あなた指定の2.5
 
 
-# -----------------------------------------
-# Schwartz PVQ 定義
-# -----------------------------------------
+# -------------------------------
+# Schwartz PVQ
+# -------------------------------
 pvq_traits = [
     '自己方向性', '刺激', '享楽', '達成', '権力',
     '安全', '順応', '伝統', '博愛', '普遍主義'
@@ -41,21 +38,19 @@ pvq_traits = [
 pvq_columns = [f'PVQ_{t}' for t in pvq_traits]
 
 
-# -----------------------------------------
-# Geminiで企業バリューからPVQ値を推定
-# -----------------------------------------
+# -------------------------------
+# Gemini → PVQスコア推定
+# -------------------------------
 def extract_pvq_from_value(value_text):
+
     model = get_gemini_model()
 
     prompt = f"""
-    あなたは心理学の専門家です。
-    以下の文章は、ある企業の「バリュー」または「行動指針」を要約したものです。
+    あなたは心理学の専門家です。この文章を、Schwartzの10価値観（PVQ）に基づいて
+    1〜7のスコアで評価してください。
 
-    Schwartzの10価値観（PVQ）理論に基づいて、この文章が各価値観をどの程度重視しているかを、1〜7の範囲で推定してください。
-    「全く反映されていない」価値観 → 1
-    「非常に強く反映されている」価値観 → 7
+    出力形式は以下に厳密に従ってください：
 
-    出力形式（順番厳守）：
     自己方向性: 数値
     刺激: 数値
     享楽: 数値
@@ -90,20 +85,20 @@ def extract_pvq_from_value(value_text):
                         continue
 
         return scores
+
     except Exception as e:
         warnings.warn(f"Gemini PVQ推定エラー: {e}")
         return {}
 
 
-# -----------------------------------------
-# Cloud Run Functions mainエントリポイント
-# -----------------------------------------
-def update_co個人価値観(request):
+# -------------------------------
+# メイン処理（worksheetを引数で受け取る）
+# -------------------------------
+def update_co個人価値観(worksheet, df):
 
-    print("=== 開始: PVQスコア更新処理 ===")
+    print("=== 開始: 個人価値観(PVQ) 更新処理 ===")
 
-    worksheet = read_coデータ()
-    df = pd.DataFrame(worksheet.get_all_records())
+    df = df.copy()
     df.fillna("", inplace=True)
 
     update_count = 0
@@ -113,37 +108,49 @@ def update_co個人価値観(request):
         company = row.get("会社名", "")
         value_text = row.get("バリュー", "")
 
-        # 対象外企業処理
+        # -------- 対象外処理 --------
         if company == "対象外" or value_text in ["対象外", "取得失敗"]:
-            print(f"⏭️ 対象外スキップ: {company}")
 
-            # 既に対象外なら更新不要
-            if all(str(row.get(col, "")).strip() == "対象外" for col in pvq_columns):
+            # 既にすべて対象外ならスキップ
+            if all(str(row.get(col, "")) == "対象外" for col in pvq_columns):
                 continue
 
-            # 対象外で上書き
+            print(f"⏭️ 対象外: {company}")
+
             for col in pvq_columns:
                 df.at[idx, col] = "対象外"
 
             update_count += 1
+
+            # 行ごとに即スプレッドシート更新
+            for col in pvq_columns:
+                col_idx = df.columns.get_loc(col)
+                col_letter = get_column_letter(col_idx + 1)
+                worksheet.update(
+                    f"{col_letter}{idx+2}:{col_letter}{idx+2}",
+                    [[df.at[idx, col]]]
+                )
+
             continue
 
-        # すでに全て埋まっていればスキップ
-        if all(str(row.get(col, "")).strip() not in ["", "対象外"] for col in pvq_columns):
+        # -------- 既に全て埋まっていればスキップ --------
+        if all(str(row.get(col, "")) not in ["", "対象外"] for col in pvq_columns):
             continue
 
-        # PVQ推定
+        # -------- Gemini 推定 --------
         scores = extract_pvq_from_value(value_text)
 
         if scores:
+            print(f"✅ 推定成功: {company}")
             for col in pvq_columns:
                 df.at[idx, col] = scores.get(col, "")
-            update_count += 1
-            print(f"✅ 成功: {company}")
         else:
             print(f"⚠️ 推定失敗: {company}")
+            continue
 
-        # Cloud Run のタイムアウト回避のため、1行ごとに部分更新
+        update_count += 1
+
+        # -------- 行ごとにシート更新（Cloud Run timeout対策）--------
         for col in pvq_columns:
             col_idx = df.columns.get_loc(col)
             col_letter = get_column_letter(col_idx + 1)
@@ -155,3 +162,4 @@ def update_co個人価値観(request):
     print(f"=== 完了: {update_count} 件更新 ===")
 
     return {"updated": update_count}
+
