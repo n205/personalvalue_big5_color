@@ -18,7 +18,7 @@ def main():
     logging.info('📥 リクエスト受信')
 
     # スプレッドシート読込
-    worksheet, existing_df, processed_urls = read_sheet()
+    worksheet, existing_df, processed_urls = read_coデータ()
     
     return 'Cloud Run Function executed.', 200
 
