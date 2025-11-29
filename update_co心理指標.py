@@ -9,7 +9,7 @@ from google.cloud import secretmanager
 
 import google.generativeai as genai
 
-from read_sheet import get_worksheet  # 既存のスプレッドシート取得関数を利用
+from read_coデータ import read_coデータ
 
 
 # -----------------------------------------
@@ -28,7 +28,7 @@ def load_gemini_key():
 def get_gemini_model():
     api_key = load_gemini_key()
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-2.0-flash")
+    return genai.GenerativeModel("gemini-2.5-flash")
 
 
 # -----------------------------------------
@@ -102,7 +102,7 @@ def update_co心理指標(request):
 
     print("=== 開始: PVQスコア更新処理 ===")
 
-    worksheet = get_worksheet()
+    worksheet = read_coデータ()
     df = pd.DataFrame(worksheet.get_all_records())
     df.fillna("", inplace=True)
 
