@@ -1,14 +1,14 @@
-import os
+import logging
 import warnings
-import pandas as pd
 import numpy as np
-from openpyxl.utils import get_column_letter
 import google.generativeai as genai
+from gspread_dataframe import get_as_dataframe
+import os
 
 
-# -----------------------------------------
-# Gemini（2.5 flash）初期化（あなた指定のコード）
-# -----------------------------------------
+# ============================================
+# Gemini 初期化
+# ============================================
 def init_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -17,63 +17,67 @@ def init_gemini():
     return genai.GenerativeModel("gemini-2.5-flash")
 
 
-# -----------------------------------------
-# Schwartz PVQ 定義
-# -----------------------------------------
+gemini_model = None
+
+
+# ============================================
+# PVQ 10項目
+# ============================================
 pvq_traits = [
-    '自己方向性', '刺激', '享楽', '達成', '権力',
-    '安全', '順応', '伝統', '博愛', '普遍主義'
+    "自己方向性", "刺激", "享楽", "達成", "権力",
+    "安全", "順応", "伝統", "博愛", "普遍主義"
 ]
-pvq_columns = [f'PVQ_{t}' for t in pvq_traits]
+pvq_columns = [f"PVQ_{t}" for t in pvq_traits]
 
 
-# -----------------------------------------
-# PVQ推定（Gemini 2.5 flash）
-# -----------------------------------------
-def extract_pvq_from_value(value_text):
-    model = init_gemini()  # 毎回初期化でメモリリーク防止
+# ============================================
+# Gemini による PVQ 推定
+# ============================================
+def extract_pvq_scores(value_text):
+    global gemini_model
+    if gemini_model is None:
+        gemini_model = init_gemini()
 
     prompt = f"""
-    あなたは心理学の専門家です。
-    以下の文章は、ある企業の「バリュー」または「行動指針」を要約したものです。
+あなたは心理学の専門家です。
+以下の文章は、ある企業の「バリュー」または「行動指針」を要約したものです。
 
-    Schwartzの10価値観（PVQ）理論に基づいて、この文章が各価値観をどの程度重視しているかを、
-    1〜7 の範囲で推定してください。
+Schwartzの10価値観（PVQ）理論に基づいて、この文章が各価値観をどの程度重視しているかを、1〜7で推定してください。
 
-    出力形式（順番厳守）：
-    自己方向性: 数値
-    刺激: 数値
-    享楽: 数値
-    達成: 数値
-    権力: 数値
-    安全: 数値
-    順応: 数値
-    伝統: 数値
-    博愛: 数値
-    普遍主義: 数値
+出力形式（順番厳守）：
+自己方向性: 数値
+刺激: 数値
+享楽: 数値
+達成: 数値
+権力: 数値
+安全: 数値
+順応: 数値
+伝統: 数値
+博愛: 数値
+普遍主義: 数値
 
-    ---
-    {value_text}
-    """
+---
+{value_text}
+"""
 
     try:
-        res = model.generate_content(prompt)
+        res = gemini_model.generate_content(prompt)
+        text = res.text.strip()
+        lines = text.splitlines()
 
-        if not hasattr(res, "text"):
-            return {}
-
-        lines = res.text.strip().splitlines()
         scores = {}
-
         for line in lines:
-            if ":" in line:
-                key, val = line.split(":", 1)
-                key = key.strip().replace(" ", "")
-                if key in pvq_traits:
-                    try:
-                        scores[f"PVQ_{key}"] = int(val.strip())
-                    except:
-                        continue
+            if ":" not in line:
+                continue
+            key, val = line.split(":", 1)
+            key = key.strip()
+            val = val.strip()
+
+            if key in pvq_traits:
+                try:
+                    scores[f"PVQ_{key}"] = int(val)
+                except:
+                    scores[f"PVQ_{key}"] = ""
 
         return scores
 
@@ -82,83 +86,70 @@ def extract_pvq_from_value(value_text):
         return {}
 
 
-# -----------------------------------------
-# Cloud Run Functions 本体  
-# worksheet は main() から渡される
-# -----------------------------------------
+# ============================================
+# update_co個人価値観（メイン処理）
+# ============================================
 def update_co個人価値観(worksheet):
+    logging.info("🧭 update_co個人価値観 開始")
 
-    print("=== 開始: update_co個人価値観 ===")
-
-    # Colab と同様の方法で DataFrame を作成
-    df = worksheet.get_all_records()
-    df = pd.DataFrame(df)
+    df = get_as_dataframe(worksheet)
     df.fillna("", inplace=True)
+
+    # PVQ列がなければ作成
+    for col in pvq_columns:
+        if col not in df.columns:
+            df[col] = ""
 
     update_count = 0
 
     for idx, row in df.iterrows():
-
         company = row.get("会社名", "")
         value_text = row.get("バリュー", "")
 
-        # ------------------------
-        # 対象外処理
-        # ------------------------
-        if company == "対象外" or value_text in ["対象外", "取得失敗"]:
-
-            # すでに対象外ならスキップ
-            if all(str(row.get(col, "")).strip() == "対象外" for col in pvq_columns):
-                continue
-
-            # 対象外で上書き
-            for col in pvq_columns:
-                df.at[idx, col] = "対象外"
-
-            update_count += 1
-            print(f"⏭️ 対象外: {company}")
-            
-            # 1行ずつ更新
-            for col in pvq_columns:
-                col_idx = df.columns.get_loc(col)
-                col_letter = get_column_letter(col_idx + 1)
-                worksheet.update(
-                    f"{col_letter}{idx+2}:{col_letter}{idx+2}",
-                    [[df.at[idx, col]]]
-                )
-
-            continue
-
-        # ------------------------
-        # すでに全て埋まっていればスキップ
-        # ------------------------
+        # すでに埋まっている行はスキップ
         if all(str(row.get(col, "")).strip() not in ["", "対象外"] for col in pvq_columns):
             continue
 
-        # ------------------------
-        # PVQ推定
-        # ------------------------
-        scores = extract_pvq_from_value(value_text)
+        # 対象外 or バリュー取得失敗
+        if company == "対象外" or value_text in ["対象外", "取得失敗", ""]:
+            for col in pvq_columns:
+                df.at[idx, col] = "対象外"
+            update_count += 1
+            logging.info(f"⏭️ 対象外: {company} ({idx})")
+            continue
+
+        # PVQ 推定
+        scores = extract_pvq_scores(value_text)
 
         if scores:
             for col in pvq_columns:
                 df.at[idx, col] = scores.get(col, "")
             update_count += 1
-            print(f"✅ PVQ成功: {company}")
+            logging.info(f"📝 PVQ推定: {company}")
         else:
-            print(f"⚠️ PVQ失敗: {company}")
+            logging.warning(f"⚠️ 推定失敗: {company}")
 
-        # ------------------------
-        # Cloud Run の制限回避のため 1行ずつ更新
-        # ------------------------
-        for col in pvq_columns:
-            col_idx = df.columns.get_loc(col)
-            col_letter = get_column_letter(col_idx + 1)
-            worksheet.update(
-                f"{col_letter}{idx+2}:{col_letter}{idx+2}",
-                [[df.at[idx, col]]]
-            )
+    df.replace([np.nan, np.inf, -np.inf], "", inplace=True)
 
-    print(f"=== 完了: {update_count}件 更新 ===")
+    # ============================================
+    # 列全体一括更新（あなたの他の関数と統一）
+    # ============================================
+    def col_to_letter(index):
+        letters = ""
+        while index >= 0:
+            index, rem = divmod(index, 26)
+            letters = chr(65 + rem) + letters
+            index -= 1
+        return letters
 
-    return {"updated": update_count}
+    for col in pvq_columns:
+        col_index = df.columns.get_loc(col)
+        col_letter = col_to_letter(col_index)
+
+        worksheet.update(
+            f"{col_letter}2:{col_letter}{len(df)+1}",
+            [[v] for v in df[col].tolist()]
+        )
+
+    logging.info(f"📝 {update_count} 件のPVQスコアを更新しました")
+    return f"{update_count} 件更新", 200
