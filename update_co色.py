@@ -78,18 +78,18 @@ def update_co色番号(worksheet):
     df.fillna("", inplace=True)
 
     # 色列がなければ作成
-    if "色1コード" not in df.columns:
-        df["色1コード"] = ""
-    if "色2コード" not in df.columns:
-        df["色2コード"] = ""
+    if "色1番号" not in df.columns:
+        df["色1番号"] = ""
+    if "色2番号" not in df.columns:
+        df["色2番号"] = ""
 
     update_count = 0
 
     for idx, row in df.iterrows():
         url = row.get("URL", "")
         company = row.get("会社名", "")
-        color1 = row.get("色1コード", "")
-        color2 = row.get("色2コード", "")
+        color1 = row.get("色1番号", "")
+        color2 = row.get("色2番号", "")
 
         # URL が空、または両方埋まっている場合はスキップ（ログなし）
         if not url or (color1 and color2):
@@ -97,8 +97,8 @@ def update_co色番号(worksheet):
 
         # 対象外処理（ログなし）
         if company == "対象外":
-            df.at[idx, "色1コード"] = "対象外"
-            df.at[idx, "色2コード"] = "対象外"
+            df.at[idx, "色1番号"] = "対象外"
+            df.at[idx, "色2番号"] = "対象外"
             update_count += 1
             continue
 
@@ -114,25 +114,25 @@ def update_co色番号(worksheet):
                 colors = extract_main_colors_from_pdf(response.content)
 
                 if len(colors) >= 2:
-                    df.at[idx, "色1コード"] = colors[0]
-                    df.at[idx, "色2コード"] = colors[1]
+                    df.at[idx, "色1番号"] = colors[0]
+                    df.at[idx, "色2番号"] = colors[1]
                     update_count += 1
                     logging.info(f"🎨 抽出成功: {url}")
                 else:
-                    df.at[idx, "色1コード"] = "取得失敗"
-                    df.at[idx, "色2コード"] = "取得失敗"
+                    df.at[idx, "色1番号"] = "取得失敗"
+                    df.at[idx, "色2番号"] = "取得失敗"
                     update_count += 1
                     logging.warning(f"⚠️ 色抽出失敗: {url}")
 
             else:
-                df.at[idx, "色1コード"] = "取得失敗"
-                df.at[idx, "色2コード"] = "取得失敗"
+                df.at[idx, "色1番号"] = "取得失敗"
+                df.at[idx, "色2番号"] = "取得失敗"
                 update_count += 1
                 logging.warning(f"⚠️ ダウンロード失敗: {url}")
 
         except Exception as e:
-            df.at[idx, "色1コード"] = "取得失敗"
-            df.at[idx, "色2コード"] = "取得失敗"
+            df.at[idx, "色1番号"] = "取得失敗"
+            df.at[idx, "色2番号"] = "取得失敗"
             update_count += 1
             logging.warning(f"❌ エラー: {e} → {url}")
 
@@ -149,7 +149,7 @@ def update_co色番号(worksheet):
         return letters
 
     # スプレッドシート更新
-    for col in ["色1コード", "色2コード"]:
+    for col in ["色1番号", "色2番号"]:
         col_index = df.columns.get_loc(col)
         col_letter = col_to_letter(col_index)
 
@@ -158,5 +158,5 @@ def update_co色番号(worksheet):
             [[v] for v in df[col].tolist()]
         )
 
-    logging.info(f"📝 {update_count} 件の色コードを更新しました")
+    logging.info(f"📝 {update_count} 件の色番号を更新しました")
     return f"{update_count} 件更新", 200
