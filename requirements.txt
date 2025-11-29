@@ -4,6 +4,7 @@ pypdf
 cryptography>=42.0.0
 
 pandas
+sklearn
 gspread
 gspread_dataframe
 google-auth
