@@ -98,7 +98,7 @@ def extract_pvq_from_value(value_text):
 # -----------------------------------------
 # Cloud Run Functions mainエントリポイント
 # -----------------------------------------
-def update_co心理指標(request):
+def update_co個人価値観(request):
 
     print("=== 開始: PVQスコア更新処理 ===")
 
