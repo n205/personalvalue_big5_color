@@ -7,6 +7,7 @@ import logging
 
 from read_coデータ import read_coデータ
 from update_co心理指標 import update_co個人価値観
+from update_co心理指標 import update_cobig5
 
 
 # Cloud Logging に出力するよう設定
@@ -22,6 +23,7 @@ def main():
     worksheet, existing_df, processed_urls = read_coデータ()
 
     update_co個人価値観(worksheet)
+    update_cobig5(worksheet)
     
     return 'Cloud Run Function executed.', 200
 
