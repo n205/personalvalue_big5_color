@@ -16,3 +16,4 @@ selenium
 
 pdf2image
 pillow
+openpyxl
