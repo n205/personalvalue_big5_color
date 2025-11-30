@@ -29,8 +29,7 @@ def main():
     update_cobig5(worksheet)
     update_co色番号(worksheet)
     update_co色(worksheet)
-    target_ws = sh.worksheet("相性スコア")
-    update_私の適合(worksheet, target_ws)
+    update_私の適合(worksheet)
     
     return 'Cloud Run Function executed.', 200
 
