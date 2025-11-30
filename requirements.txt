@@ -7,6 +7,8 @@ pandas
 scikit-learn
 gspread
 gspread_dataframe
+gspread-formatting
+
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
