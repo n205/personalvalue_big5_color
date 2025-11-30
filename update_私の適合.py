@@ -1,29 +1,27 @@
+from google.oauth2 import service_account
+import gspread
+from gspread_dataframe import get_as_dataframe, set_with_dataframe
+from gspread_formatting import format_cell_ranges, CellFormat, Color
 import pandas as pd
 import numpy as np
 import logging
 import re
-import gspread
-from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from matplotlib.colors import to_rgb
 from sklearn.preprocessing import MinMaxScaler
-from gspread_formatting import format_cell_ranges, CellFormat, Color
 
 
-# HEX → gspread_formatting.Color
 def hex_to_color(hex_str):
     if (
         not isinstance(hex_str, str)
         or not re.match(r"^#([0-9A-Fa-f]{6})$", hex_str.strip())
     ):
         return None
-
     r = int(hex_str[1:3], 16) / 255
     g = int(hex_str[3:5], 16) / 255
     b = int(hex_str[5:7], 16) / 255
     return Color(red=r, green=g, blue=b)
 
 
-# 列 index → A1 記法
 def col_to_letter(index):
     letters = ""
     while index >= 0:
@@ -34,21 +32,35 @@ def col_to_letter(index):
 
 
 def update_私の適合(worksheet):
+
     logging.info("🔍 update_私の適合 開始")
 
     # ---- 出力スプレッドシート指定
     SPREADSHEET_ID = "18Sb4CcAE5JPFeufHG97tLZz9Uj_TvSGklVQQhoFF28w"
     OUTPUT_SHEET_NAME = "相性スコア"
 
-    gc = gspread.oauth()
-    sh = gc.open_by_key(SPREADSHEET_ID)
-
     try:
-        target_ws = sh.worksheet(OUTPUT_SHEET_NAME)
-    except gspread.exceptions.WorksheetNotFound:
-        target_ws = sh.add_worksheet(title=OUTPUT_SHEET_NAME, rows=1000, cols=30)
+        # ---- サービスアカウント認証（統一！）
+        creds = service_account.Credentials.from_service_account_file(
+            "/secrets/service-account-json",
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(SPREADSHEET_ID)
 
-    # ---- ユーザー設定
+        try:
+            target_ws = sh.worksheet(OUTPUT_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            target_ws = sh.add_worksheet(title=OUTPUT_SHEET_NAME, rows=1000, cols=30)
+
+    except Exception as e:
+        logging.error(f"❌ Google 認証エラー: {e}")
+        return f"認証エラー: {e}", 500
+
+    # ---- ユーザー設定値
     my_bigfive = {
         "Extraversion": 3,
         "Agreeableness": 9,
@@ -79,15 +91,15 @@ def update_私の適合(worksheet):
     my_bigfive_vec = np.array([my_bigfive[t] for t in bigfive_traits])
     my_pvq_vec = np.array([my_pvq[t] for t in pvq_traits])
 
-    # ---- データ読み込み
+    # ---- 入力データ
     df = get_as_dataframe(worksheet)
     df.fillna("", inplace=True)
 
-    # 数値に変換
+    # 数値へ変換
     for col in bigfive_traits + pvq_traits:
         df[col] = pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce")
 
-    # ---- 有効行フィルタ
+    # ---- 有効データ抽出（※ 色番号を使う）
     valid_rows = df[
         (df.get("会社名", "") != "")
         & (df.get("会社名", "") != "対象外")
@@ -98,7 +110,7 @@ def update_私の適合(worksheet):
     ].copy()
 
     if len(valid_rows) == 0:
-        return "⚠️ 有効な行がありません", 200
+        return "⚠️ 有効なデータがありません", 200
 
     # ---- スコア計算
     def compute_bigfive_score(row):
@@ -133,19 +145,19 @@ def update_私の適合(worksheet):
         valid_rows[["B5相性スコア_そのまま", "PVQ相性スコア_そのまま", "色相性スコア_そのまま"]]
     )
 
-    # ---- 順位
+    # ---- 順位計算
     valid_rows["B5相性スコア_順位"] = valid_rows["B5相性スコア_そのまま"].rank(ascending=False)
     valid_rows["PVQ相性スコア_順位"] = valid_rows["PVQ相性スコア_そのまま"].rank(ascending=False)
     valid_rows["色相性スコア_順位"] = valid_rows["色相性スコア_そのまま"].rank(ascending=False)
 
-    # ---- 総合スコア
+    # ---- 総合スコア算出
     valid_rows["総合スコア"] = (
         valid_rows["B5相性スコア_01"] * 0.35
         + valid_rows["PVQ相性スコア_01"] * 0.45
         + valid_rows["色相性スコア_01"] * 0.20
     )
 
-    # ---- 出力データ
+    # ---- 出力
     result_df = valid_rows.sort_values("総合スコア", ascending=False)[
         [
             "会社名",
@@ -168,7 +180,6 @@ def update_私の適合(worksheet):
         ]
     ]
 
-    # ---- 出力
     target_ws.clear()
     set_with_dataframe(target_ws, result_df)
 
@@ -185,7 +196,7 @@ def update_私の適合(worksheet):
 
     for code_col, fill_col in color_map.items():
         if code_col not in df_out.columns or fill_col not in df_out.columns:
-            logging.warning(f"⚠️ 列が見つかりません: {code_col} / {fill_col}")
+            logging.warning(f"⚠️ 列なし: {code_col}, {fill_col}")
             continue
 
         fill_idx = df_out.columns.get_loc(fill_col)
@@ -195,13 +206,11 @@ def update_私の適合(worksheet):
         for i, hex_code in enumerate(df_out[code_col]):
             color = hex_to_color(hex_code)
             if color:
-                cell_range = f"{col_letter}{start_row + i}"
-                ranges.append((cell_range, CellFormat(backgroundColor=color)))
+                ranges.append((f"{col_letter}{start_row + i}", CellFormat(backgroundColor=color)))
 
         if ranges:
             format_cell_ranges(target_ws, ranges)
-            logging.info(f"🎨 {fill_col}: {len(ranges)} 件 塗りつぶし適用")
 
-    msg = f"✅ 相性スコア {len(result_df)} 件更新（出力先: {OUTPUT_SHEET_NAME}）"
+    msg = f"✅ 相性スコア {len(result_df)} 件更新（{OUTPUT_SHEET_NAME}）"
     logging.info(msg)
     return msg, 200
