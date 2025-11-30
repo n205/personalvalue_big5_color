@@ -10,6 +10,7 @@ from update_co心理指標 import update_co個人価値観
 from update_co心理指標 import update_cobig5
 from update_co色 import update_co色番号
 from update_co色 import update_co色
+from update_私の適合 import update_私の適合
 
 
 # Cloud Logging に出力するよう設定
@@ -28,6 +29,8 @@ def main():
     update_cobig5(worksheet)
     update_co色番号(worksheet)
     update_co色(worksheet)
+    target_ws = sh.worksheet("相性スコア")
+    update_私の適合(worksheet, target_ws)
     
     return 'Cloud Run Function executed.', 200
 
