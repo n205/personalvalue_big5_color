@@ -1,16 +1,15 @@
-# update_私の適合.py (色列名を '色1番号' / '色2番号' に修正した完全版)
-
 import pandas as pd
 import numpy as np
 import logging
 import re
+import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from matplotlib.colors import to_rgb
 from sklearn.preprocessing import MinMaxScaler
 from gspread_formatting import format_cell_ranges, CellFormat, Color
 
 
-# HEX -> gspread_formatting.Color
+# HEX → gspread_formatting.Color
 def hex_to_color(hex_str):
     if (
         not isinstance(hex_str, str)
@@ -24,7 +23,7 @@ def hex_to_color(hex_str):
     return Color(red=r, green=g, blue=b)
 
 
-# 列 index -> A1 記法
+# 列 index → A1 記法
 def col_to_letter(index):
     letters = ""
     while index >= 0:
@@ -34,8 +33,20 @@ def col_to_letter(index):
     return letters
 
 
-def update_私の適合(worksheet, target_ws):
+def update_私の適合(worksheet):
     logging.info("🔍 update_私の適合 開始")
+
+    # ---- 出力スプレッドシート指定
+    SPREADSHEET_ID = "18Sb4CcAE5JPFeufHG97tLZz9Uj_TvSGklVQQhoFF28w"
+    OUTPUT_SHEET_NAME = "相性スコア"
+
+    gc = gspread.oauth()
+    sh = gc.open_by_key(SPREADSHEET_ID)
+
+    try:
+        target_ws = sh.worksheet(OUTPUT_SHEET_NAME)
+    except gspread.exceptions.WorksheetNotFound:
+        target_ws = sh.add_worksheet(title=OUTPUT_SHEET_NAME, rows=1000, cols=30)
 
     # ---- ユーザー設定
     my_bigfive = {
@@ -72,12 +83,11 @@ def update_私の適合(worksheet, target_ws):
     df = get_as_dataframe(worksheet)
     df.fillna("", inplace=True)
 
-    # 数値変換（存在しない/数値でないものは NaN になる）
+    # 数値に変換
     for col in bigfive_traits + pvq_traits:
         df[col] = pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce")
 
     # ---- 有効行フィルタ
-    # NOTE: 色列は '色1番号' / '色2番号' を使用する仕様に合わせる
     valid_rows = df[
         (df.get("会社名", "") != "")
         & (df.get("会社名", "") != "対象外")
@@ -88,8 +98,7 @@ def update_私の適合(worksheet, target_ws):
     ].copy()
 
     if len(valid_rows) == 0:
-        logging.warning("⚠️ 有効な行がありません")
-        return "No valid rows", 200
+        return "⚠️ 有効な行がありません", 200
 
     # ---- スコア計算
     def compute_bigfive_score(row):
@@ -111,7 +120,7 @@ def update_私の適合(worksheet, target_ws):
             sim_unfav = max(1 - np.linalg.norm(c1 - unfav), 1 - np.linalg.norm(c2 - unfav))
 
             return sim_fav - sim_unfav
-        except Exception:
+        except:
             return 0
 
     valid_rows["B5相性スコア_そのまま"] = valid_rows.apply(compute_bigfive_score, axis=1)
@@ -129,14 +138,14 @@ def update_私の適合(worksheet, target_ws):
     valid_rows["PVQ相性スコア_順位"] = valid_rows["PVQ相性スコア_そのまま"].rank(ascending=False)
     valid_rows["色相性スコア_順位"] = valid_rows["色相性スコア_そのまま"].rank(ascending=False)
 
-    # ---- 総合スコア（重み付け）
+    # ---- 総合スコア
     valid_rows["総合スコア"] = (
         valid_rows["B5相性スコア_01"] * 0.35
         + valid_rows["PVQ相性スコア_01"] * 0.45
         + valid_rows["色相性スコア_01"] * 0.20
     )
 
-    # ---- 出力整形（色列は '色1番号' / '色2番号' を表示）
+    # ---- 出力データ
     result_df = valid_rows.sort_values("総合スコア", ascending=False)[
         [
             "会社名",
@@ -159,11 +168,11 @@ def update_私の適合(worksheet, target_ws):
         ]
     ]
 
-    # ---- スプレッドシート出力
+    # ---- 出力
     target_ws.clear()
     set_with_dataframe(target_ws, result_df)
 
-    # ---- 色塗り（出力シートの '色1' / '色2' を塗る）
+    # ---- 色塗り
     df_out = get_as_dataframe(target_ws)
     df_out.fillna("", inplace=True)
 
@@ -193,7 +202,6 @@ def update_私の適合(worksheet, target_ws):
             format_cell_ranges(target_ws, ranges)
             logging.info(f"🎨 {fill_col}: {len(ranges)} 件 塗りつぶし適用")
 
-    msg = f"✅ 相性スコア {len(result_df)} 件更新"
+    msg = f"✅ 相性スコア {len(result_df)} 件更新（出力先: {OUTPUT_SHEET_NAME}）"
     logging.info(msg)
     return msg, 200
-
