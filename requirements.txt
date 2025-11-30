@@ -5,6 +5,7 @@ cryptography>=42.0.0
 
 pandas
 scikit-learn
+matplotlib
 gspread
 gspread_dataframe
 gspread-formatting
