@@ -7,6 +7,8 @@ from PIL import Image
 import requests
 import warnings
 import logging
+import re
+from gspread_formatting import format_cell_ranges, CellFormat, Color
 
 
 # ============================================
@@ -26,12 +28,11 @@ def is_near_gray(rgb, threshold=30):
 # ============================================
 def extract_main_colors_from_pdf(pdf_bytes, num_colors=2):
     try:
-        # PDF → 1〜3ページ画像化
         images = convert_from_bytes(
             pdf_bytes,
             dpi=200,
             first_page=1,
-            last_page=3
+            last_page=3,
         )
 
         all_pixels = []
@@ -40,11 +41,7 @@ def extract_main_colors_from_pdf(pdf_bytes, num_colors=2):
             img_resized = img.resize((400, 400)).convert("RGB")
             arr = np.array(img_resized).reshape(-1, 3)
 
-            # グレー・白黒付近を除去
-            arr = np.array(
-                [px for px in arr if not is_near_gray(px)],
-                dtype=int
-            )
+            arr = np.array([px for px in arr if not is_near_gray(px)], dtype=int)
 
             if len(arr) > 0:
                 all_pixels.append(arr)
@@ -53,8 +50,6 @@ def extract_main_colors_from_pdf(pdf_bytes, num_colors=2):
             return []
 
         full_array = np.vstack(all_pixels)
-
-        # KMeans（主要2色）
         kmeans = KMeans(n_clusters=num_colors, random_state=0)
         kmeans.fit(full_array)
 
@@ -69,10 +64,10 @@ def extract_main_colors_from_pdf(pdf_bytes, num_colors=2):
 
 
 # ============================================
-# update_色番号（メイン処理）
+# 色番号を更新する（色コード抽出）
 # ============================================
 def update_co色番号(worksheet):
-    logging.info("🖼️ update_色番号 開始")
+    logging.info("🖼️ update_co色番号 開始")
 
     df = get_as_dataframe(worksheet)
     df.fillna("", inplace=True)
@@ -91,23 +86,20 @@ def update_co色番号(worksheet):
         color1 = row.get("色1番号", "")
         color2 = row.get("色2番号", "")
 
-        # URL が空、または両方埋まっている場合はスキップ（ログなし）
         if not url or (color1 and color2):
             continue
 
-        # 対象外処理（ログなし）
         if company == "対象外":
             df.at[idx, "色1番号"] = "対象外"
             df.at[idx, "色2番号"] = "対象外"
             update_count += 1
             continue
 
-        # PDF ダウンロード
         try:
             response = requests.get(
                 url,
                 headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15
+                timeout=15,
             )
 
             if response.status_code == 200:
@@ -136,10 +128,9 @@ def update_co色番号(worksheet):
             update_count += 1
             logging.warning(f"❌ エラー: {e} → {url}")
 
-    # 欠損値補正
     df.replace([np.nan, np.inf, -np.inf], "", inplace=True)
 
-    # A〜ZZ の列対応
+    # 列 index → A1 記法
     def col_to_letter(index):
         letters = ""
         while index >= 0:
@@ -148,15 +139,84 @@ def update_co色番号(worksheet):
             index -= 1
         return letters
 
-    # スプレッドシート更新
     for col in ["色1番号", "色2番号"]:
         col_index = df.columns.get_loc(col)
         col_letter = col_to_letter(col_index)
 
         worksheet.update(
             f"{col_letter}2:{col_letter}{len(df) + 1}",
-            [[v] for v in df[col].tolist()]
+            [[v] for v in df[col].tolist()],
         )
 
     logging.info(f"📝 {update_count} 件の色番号を更新しました")
     return f"{update_count} 件更新", 200
+
+
+# ============================================
+# HEX → 色塗りつぶし用 Color
+# ============================================
+def hex_to_color(hex_str):
+    if (
+        not isinstance(hex_str, str)
+        or not re.match(r"^#([0-9A-Fa-f]{6})$", hex_str.strip())
+    ):
+        return None
+
+    r = int(hex_str[1:3], 16) / 255
+    g = int(hex_str[3:5], 16) / 255
+    b = int(hex_str[5:7], 16) / 255
+
+    return Color(red=r, green=g, blue=b)
+
+
+# ============================================
+# 色番号に応じてセルを塗りつぶす
+# ============================================
+def update_co色(worksheet):
+    logging.info("🎨 update_co色（塗りつぶし）開始")
+
+    df = get_as_dataframe(worksheet)
+    df.fillna("", inplace=True)
+
+    start_row = 2
+
+    color_map = {
+        "色1番号": "色1",
+        "色2番号": "色2",
+    }
+
+    # 列 index → A1 記法
+    def col_to_letter(n):
+        result = ""
+        while n >= 0:
+            result = chr(n % 26 + ord("A")) + result
+            n = n // 26 - 1
+        return result
+
+    for code_col, fill_col in color_map.items():
+        if code_col not in df.columns or fill_col not in df.columns:
+            logging.warning(f"⚠️ 列が存在しません: {code_col} / {fill_col}")
+            continue
+
+        fill_index = df.columns.get_loc(fill_col)
+        col_letter = col_to_letter(fill_index)
+
+        format_list = []
+
+        for i, hex_code in enumerate(df[code_col]):
+            color = hex_to_color(hex_code)
+            if color is None:
+                continue  # 無効色の場合は塗りつぶしなし
+
+            row_num = start_row + i
+            cell_ref = f"{col_letter}{row_num}"
+
+            format_list.append((cell_ref, CellFormat(backgroundColor=color)))
+
+        if format_list:
+            format_cell_ranges(worksheet, format_list)
+            logging.info(f"🟩 {fill_col}: {len(format_list)} 件に塗りつぶし適用")
+        else:
+            logging.info(f"ℹ️ {fill_col}: 有効なカラーコードなし")
+
+    return "OK", 200
