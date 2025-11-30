@@ -6,9 +6,8 @@ from google.oauth2 import service_account
 import time
 import numpy as np
 
-def read_coデータ():
+def read_coデータ(WORKSHEET_NAME):
     SPREADSHEET_ID = '18Sb4CcAE5JPFeufHG97tLZz9Uj_TvSGklVQQhoFF28w'
-    WORKSHEET_NAME = 'バリュー抽出'
 
     try:
         creds = service_account.Credentials.from_service_account_file(
