@@ -93,8 +93,8 @@ def update_co個人価値観(worksheet):
     logging.info("🧭 update_co個人価値観 開始")
 
     df = get_as_dataframe(worksheet)
-    df.fillna("", inplace=True)
-
+    df = df.astype(object).fillna("")
+    
     # PVQ列がなければ作成
     for col in pvq_columns:
         if col not in df.columns:
@@ -230,7 +230,7 @@ def update_cobig5(worksheet):
     logging.info("🧭 update_cobig5 開始")
 
     df = get_as_dataframe(worksheet)
-    df.fillna("", inplace=True)
+    df = df.astype(object).fillna("")
 
     # Big5列がなければ作成
     for col in big5_columns:
