@@ -176,8 +176,8 @@ def update_co色(worksheet):
     logging.info("🎨 update_co色（塗りつぶし）開始")
 
     df = get_as_dataframe(worksheet)
-    df.fillna("", inplace=True)
-
+    df = df.astype(object).fillna("")
+    
     start_row = 2
 
     color_map = {
