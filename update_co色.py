@@ -70,8 +70,8 @@ def update_co色番号(worksheet):
     logging.info("🖼️ update_co色番号 開始")
 
     df = get_as_dataframe(worksheet)
-    df.fillna("", inplace=True)
-
+    df = df.astype(object).fillna("")
+    
     # 色列がなければ作成
     if "色1番号" not in df.columns:
         df["色1番号"] = ""
