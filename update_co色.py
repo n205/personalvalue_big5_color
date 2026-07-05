@@ -128,7 +128,7 @@ def update_co色番号(worksheet):
             update_count += 1
             logging.warning(f"❌ エラー: {e} → {url}")
 
-    df.replace([np.nan, np.inf, -np.inf], "", inplace=True)
+    df = df.replace([np.nan, np.inf, -np.inf], "")
 
     # 列 index → A1 記法
     def col_to_letter(index):
