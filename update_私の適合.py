@@ -93,8 +93,8 @@ def update_私の適合(worksheet):
 
     # ---- 入力データ
     df = get_as_dataframe(worksheet)
-    df.fillna("", inplace=True)
-
+    df = df.astype(object).fillna('')
+    
     # 数値へ変換
     for col in bigfive_traits + pvq_traits:
         df[col] = pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce")
