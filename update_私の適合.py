@@ -185,8 +185,8 @@ def update_私の適合(worksheet):
 
     # ---- 色塗り
     df_out = get_as_dataframe(target_ws)
-    df_out.fillna("", inplace=True)
-
+    df = df.astype(object).fillna('')
+    
     color_map = {
         "色1番号": "色1",
         "色2番号": "色2",
